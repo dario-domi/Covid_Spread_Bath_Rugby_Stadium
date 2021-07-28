@@ -1,131 +1,63 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This script simulates the arrival of people at a match, who join one of
+% n_queues lines to access the stadium. The code below uses the function
+% Queue_simulation (see the latter for more details on the simulation of
+% the arrival and queuing process) to produce and save graphical statistics
+% concerning average waiting time in the queue, length of queues etc.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 clc;
 close all;
 
-preChecking = 0;
-N_Total = 700 - preChecking; % Total
-N_Lines = 3;
-N = N_Total / N_Lines; % Total entering each gate
-Groups = 1; 
+%% General variables
+ticket_rate = 1/4;   % average time to process a ticket at check-in (minutes)
+n_total = 700;       % total number of people to enter the stadium (some may be pre-checked)
+n_queues = 3;        % number of independent lines to enter the stadium
+a = 6; b = 1.61;     % parameters of beta distribution (arrival times distribution)
+folder = 'Pictures'; % folder where plots will be saved
 
-Queues = cell([N_Lines, 1]);
+%% Produce plot of Beta Density (check parameters in the script)
+Beta_Density_Plot;
 
-%TicketRate = 1/10 ;%+ normrnd(0,1); % time taken to process ticket in min
-TicketRate = 1/5;
-Ticketers = 1; % number of ticket processors
-OpenEarly = 30;
-Start = 120;
+%% Run the experiment with no pre-checking, and save corresponding plots
+pre_checking = 0;    % number of people to be pre-checked
+plotting = true;     % plots will be generated when calling Queue_simulation()
+n_people = n_total - pre_checking; % people who will go through standard check-in
+Queue_simulation(n_people, n_queues, ticket_rate, a, b, plotting, folder);
 
-Prevalence = 0.02;
 
-if Groups>1
-SlotGaps = (Start-60)/Groups;
-GroupTimes = 0:SlotGaps:Start-SlotGaps;
-IndivGroup = randi(Groups,1,N);
-ArrivalMean = GroupTimes(IndivGroup);
-ArrivalSd = 15; 
-ArrivalTimes = normrnd(ArrivalMean,ArrivalSd); 
-Open = min(ArrivalMean) - OpenEarly;
+%% Now simulate the fans' check-ins into the stadium when different amounts
+% of fans are pre-checked, compute average waiting time in each case
+% (through several Monte Carlo simulations), and produce corresponding plot
 
-histogram(ArrivalTimes, 20);
-hold on
-line([Open, Open], ylim, 'LineWidth', 2, 'Color', 'r', 'LineStyle','--');
-line([0, 0], ylim, 'LineWidth', 2, 'Color', 'r', 'LineStyle','-.');
-line([Start, Start], ylim, 'LineWidth', 2, 'Color', 'r', 'LineStyle','-');
-hold off
+plotting = false;
+pre_checking_values = linspace(0, 650, 14);                  % vector with different proportions of pre-checked fans (out of 700)
+mean_waiting_times = zeros(length(pre_checking_values), 1);  % will contain average waiting time in the queue
+n_tests = 100;                                               % # of MC samples for each element in pre_checking_values
 
-else
-a = 6;b = 1.61;
-%a = 6,b=1.11
-ArrivalTimes =130*betarnd(a*ones(1,N_Total),b*ones(1,N_Total))-5; 
-Open = min(ArrivalTimes) - OpenEarly;
-%figure;
-%histogram(ArrivalTimes,20);
-end
-disp(median(ArrivalTimes));
-
-QueueLength = [];
-
-Ts = [];
-Tmin = floor(min(ArrivalTimes));
-disp('Tmim')
-disp(Tmin)
-
-%figure(1)
-%histogram(ArrivalTimes);
-%hold on
-%line([Open, Open], ylim, 'LineWidth', 2, 'Color', 'r', 'LineStyle','--');
-%line([0, 0], ylim, 'LineWidth', 2, 'Color', 'r', 'LineStyle','-.');
-%line([Start, Start], ylim, 'LineWidth', 2, 'Color', 'r', 'LineStyle','-');
-%hold off
-%% simulation
-Time = Tmin;
-
-for i = 1:N_Lines
-    Queues{i} = [];
+for i = 1:length(pre_checking_values)
+    n_people = n_total - pre_checking_values(i);   % number of fans who will do standard check-in
+    aggregate_waiting_time = 0;
+    for j = 1:n_tests
+        aggregate_waiting_time = aggregate_waiting_time + ...
+            Queue_simulation(n_people, n_queues, ticket_rate, a, b, plotting); % add mean waiting time for one sample
+    end
+    mean_waiting_times(i) = aggregate_waiting_time/n_tests;  % store average MWT of the n_test samples
 end
 
-time_to_checkin = 1000 * ones(N_Lines, 1);
-ArrivalTimes = sort(ArrivalTimes);
-length_data = zeros(2 * length(ArrivalTimes) + 1, 4);
-records = 2;
-n_people = 0;
-
-while records < 2 * length(ArrivalTimes) + 1
-    arrival_time = ArrivalTimes(n_people + 1);
-    queue_length = zeros(N_Lines,1);
-    for i = 1:N_Lines
-        queue_length(i) = length(Queues{i});
-    end
-    queue_id = find(queue_length==min(queue_length), 1);
-    Queues{queue_id} = [Queues{queue_id}, person];
-    if length(Queues{queue_id}) == 1
-        time_to_checkin(queue_id) = arrival_time + exprnd(TicketRate);
-        shortest_time_to_checkin = min(shortest_time_to_checkin, time_to_checkin(queue_id));
-    end
-    n_people = n_people + 1;
-
-    length_data(records, 1) = arrival_time;
-    for i = 1:N_Lines
-        length_data(records, i+1) = length(Queues{i});
-    end
-    records = records + 1;
-    
-    if n_people + 1 > length(ArrivalTimes)
-        arrival_time = 900;
-    end
-    shortest_time_to_checkin = min(time_to_checkin);
-    while shortest_time_to_checkin < arrival_time
-        time = shortest_time_to_checkin;
-        queue_id = find(time_to_checkin == shortest_time_to_checkin, 1);
-        fprintf('queue_id=%d\n', queue_id);
-        temp = Queues{queue_id};
-        Queues{queue_id} = temp(2:end);
-        if isempty(Queues{queue_id})
-            time_to_checkin(queue_id) = 1000;
-        else
-            time_to_checkin(queue_id) = shortest_time_to_checkin + exprnd(TicketRate);
-        end
-        length_data(records, 1) = shortest_time_to_checkin;
-        for i = 1:N_Lines
-            length_data(records, i+1) = length(Queues{i});
-        end
-        records = records + 1;
-        shortest_time_to_checkin = min(time_to_checkin);
-    end
-end
-
-figure
-hold on
-for i = 1:N_Lines
-    plot(length_data(:, 1), length_data(:, i+1));
-end
-hold off
-xlabel('time')
-ylabel('length of a queue')
-
-labels = cell(N_Lines, 1);
-for i = 1:N_Lines
-    labels{i} = strcat('queue ', num2str(i));
-end
-legend(labels);
-
+%% Produce plot of average waiting time against proportion of pre-checked
+font = 'Century Schoolbook';
+width=650; height=420;
+figure;
+set(gcf,'units','points','position',[0,0,width,height]);
+scatter(pre_checking_values, mean_waiting_times, 90, 'filled', 'MarkerEdgeColor', 'k', 'LineWidth', 1)
+box on
+g=gca;
+set(g, 'Linewidth', 1, 'FontSize', 18, 'FontName', font);
+xlabel( ['Number of pre checking visitors (out of ', num2str(n_total), ')'])
+ylabel('Average waiting time in queue [min]', 'FontSize', 16)
+g.YAxis.MinorTick = 'on';
+g.YAxis.MinorTickValues = 0:2.5:25;
+file = fullfile(folder, 'Effect_of_prechecking.png');
+saveas(gcf, file);
+close;
